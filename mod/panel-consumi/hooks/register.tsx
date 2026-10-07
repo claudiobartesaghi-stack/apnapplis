@@ -54,7 +54,7 @@ export const register: Register = on => {
       return acc
     }
     const line = (title: string, d: Day) =>
-      `${title}: ${fmt(total(d))} token (ingresso ${fmt(d.input)}, uscita ${fmt(d.output)}, cache ${fmt(d.cacheRead + d.cacheWrite)}), ${d.turns} turni`
+      `${title}: ${fmt(d.input + d.output)} token (ingresso ${fmt(d.input)}, uscita ${fmt(d.output)}), cache ${fmt(d.cacheRead + d.cacheWrite)}, ${d.turns} ${d.turns === 1 ? 'turno' : 'turni'}`
 
     const day = sumOf(1)
     const week = sumOf(7)
@@ -90,7 +90,7 @@ export const register: Register = on => {
       const all = await update($, days, cur => {
         const d = cur[key] ?? EMPTY
         const kept = Object.keys(cur).sort().slice(-30)
-        const next30 = Object.fromEntries(kept.map(k => [k, cur[k]]))
+        const next30 = Object.fromEntries(kept.map(k => [k, cur[k] ?? EMPTY]))
         next30[key] = {
           input: d.input + u.input_tokens,
           output: d.output + u.output_tokens,
@@ -111,6 +111,56 @@ export const register: Register = on => {
     await update($, limits, () => e.rateLimits as Limit[])
 
     return next(e)
+  })
+
+  // Barra sempre visibile sopra il prompt: si ridisegna da sola quando cambiano i valori.
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    if (e.props.hasSurvey) {
+      return next(e)
+    }
+
+    const { Box, Text } = $.ui.resolve(e)
+    const byDay = await read($, days)
+    const windows = await read($, limits)
+    const now = await $.clock.now()
+
+    const sumOf = (n: number) => {
+      let io = 0
+      let cache = 0
+      for (let i = 0; i < n; i++) {
+        const d = byDay[dayKey(now - i * 864e5)] ?? EMPTY
+        io += d.input + d.output
+        cache += d.cacheRead + d.cacheWrite
+      }
+      return { io, cache }
+    }
+    const day = sumOf(1)
+    const week = sumOf(7)
+    const find = (kind: string) => windows.find(w => w.kind === kind)
+    const tone = (p: number) => (p >= 90 ? 'error' : p >= 70 ? 'warning' : 'success')
+    const meter = (title: string, kind: string) => {
+      const w = find(kind)
+
+      return w ? (
+        <Text>
+          {title} <Text color={tone(w.percentUsed)}>{bar(w.percentUsed, 12)}</Text> {Math.round(w.percentUsed)}%
+        </Text>
+      ) : (
+        <Text dimColor>{title} {bar(0, 12)} n.d.</Text>
+      )
+    }
+
+    return (
+      <Box flexDirection="column">
+        <Box gap={3}>
+          {meter('Sessione 5 ore', 'five_hour')}
+          {meter('Settimana', 'seven_day')}
+        </Box>
+        <Text dimColor>
+          Oggi {fmt(day.io)} token (cache {fmt(day.cache)}) · 7 giorni {fmt(week.io)} (cache {fmt(week.cache)})
+        </Text>
+      </Box>
+    )
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
