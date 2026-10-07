@@ -1,0 +1,8 @@
+{
+  "name": "apnapplis-mods",
+  "description": "Mod per Claude Code",
+  "owner": { "name": "Claudio Bartesaghi" },
+  "plugins": [
+    { "name": "panel-consumi", "source": "./mod/panel-consumi" }
+  ]
+}
