@@ -1,0 +1,1 @@
+{ "name": "panel-consumi", "version": "0.1.0", "description": "Consumi interni di Claude Code: % e numeri di oggi e della settimana", "author": { "name": "Claudio Bartesaghi" }, "types": "./types/index.d.ts" }
