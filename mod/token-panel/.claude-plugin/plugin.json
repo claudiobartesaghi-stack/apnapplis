@@ -1,0 +1,1 @@
+{ "name": "token-panel", "version": "0.1.0", "description": "Pannello dei consumi token giornalieri e settimanali, in numeri e in %", "author": { "name": "Claudio Bartesaghi" }, "types": "./types/index.d.ts" }
