@@ -34,10 +34,38 @@ export const register: Register = on => {
     return next(e)
   })
 
+  // Il riepilogo va anche come testo: si legge dove il pannello non si vede.
   on('command.run', { command: 'token-panel' }, async $ => {
-    await $.ui.open({ id: PANE, title: 'Consumi token' })
+    const opened = await $.ui.open({ id: PANE, title: 'Consumi token' })
+    const byDay = await read($, days)
+    const windows = await read($, limits)
+    const now = await $.clock.now()
 
-    return { text: 'Pannello consumi token aperto.' }
+    const sumOf = (n: number): Day => {
+      const acc = { ...EMPTY }
+      for (let i = 0; i < n; i++) {
+        const d = byDay[dayKey(now - i * 864e5)] ?? EMPTY
+        acc.input += d.input
+        acc.output += d.output
+        acc.cacheRead += d.cacheRead
+        acc.cacheWrite += d.cacheWrite
+        acc.turns += d.turns
+      }
+      return acc
+    }
+    const line = (title: string, d: Day) =>
+      `${title}: ${fmt(total(d))} token (ingresso ${fmt(d.input)}, uscita ${fmt(d.output)}, cache ${fmt(d.cacheRead + d.cacheWrite)}), ${d.turns} turni`
+
+    const head = opened.isPlaced
+      ? 'Pannello consumi token aperto.'
+      : `Pannello non mostrato (${opened.reason ?? 'motivo non indicato'}). Riepilogo:`
+    const limitLines = windows.length
+      ? windows.map(w => `${label(w.kind)}: ${w.percentUsed.toFixed(1)}%`)
+      : ["Limiti dell'account: nessun dato (serve un abbonamento e una risposta API)."]
+
+    return {
+      text: [head, line('Oggi', sumOf(1)), line('Ultimi 7 giorni', sumOf(7)), ...limitLines].join('\n'),
+    }
   })
 
   // Token reali di ogni turno, sommati per giorno e salvati tra le sessioni.
