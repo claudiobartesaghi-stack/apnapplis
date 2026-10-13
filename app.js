@@ -1,5 +1,5 @@
 /*
- * ApnAppLis — versione web (per iPhone e qualsiasi browser).
+ * ApnAppLisWeb — versione web (per iPhone e qualsiasi browser).
  * Liste spuntabili con catalogo "Tipo → Categorie → Voci", come l'app Android.
  * I dati restano nel browser (localStorage). Liste e cataloghi si inviano con un
  * link che contiene i dati nel frammento (#d=...), nello stesso formato dell'app
@@ -9,7 +9,8 @@
 
 const STORE_KEY = 'apnapplis.v1';
 const HINT_KEY = 'apnapplis.hint-home';
-const ANDROID_PACKAGE = 'com.apnapplis.web';
+const ANDROID_PACKAGE = 'com.apnapplis.apnapplisweb';
+const ANDROID_APP_NAME = 'ApnAppLisWeb';
 const PALETTE = ['#34D3B3', '#7C8CFF', '#FFB25C', '#FF7BA9', '#B6E06A'];
 
 // ---------------------------------------------------------------- Dati
@@ -182,11 +183,11 @@ async function shareTextFor(p) {
       if (headers) s += `${g.category || 'Altro'}\n`;
       for (const e of g.entries) s += `${e.done ? '☑' : '☐'} ${e.text}\n`;
     }
-    s += '\nApri o importa la lista in ApnAppLis:\n';
+    s += '\nApri o importa la lista in ApnAppLisWeb:\n';
   } else {
     s += `📚 Catalogo «${p.typeName}»\n\n`;
     for (const g of p.groups) s += `${g.category}: ${g.entries.map(e => e.text).join(', ')}\n`;
-    s += '\nImporta il catalogo in ApnAppLis:\n';
+    s += '\nImporta il catalogo in ApnAppLisWeb:\n';
   }
   return s + link;
 }
@@ -240,7 +241,7 @@ async function handleIncoming(text) {
     await infoDialog('Link non valido',
       e.message === 'browser'
         ? '<p>Questo browser è troppo vecchio per leggere il link: aggiornalo e riprova.</p>'
-        : '<p>Il link non contiene una lista di ApnAppLis, oppure è incompleto.</p>');
+        : '<p>Il link non contiene una lista di ApnAppLisWeb, oppure è incompleto.</p>');
     return true;
   }
   const entries = p.groups.reduce((n, g) => n + g.entries.length, 0);
@@ -249,13 +250,14 @@ async function handleIncoming(text) {
   if (cats) summary += ' in ' + plural(cats, 'categoria', 'categorie');
   if (p.kind === 'l' && p.typeName) summary += ` · tipo «${esc(p.typeName)}»`;
   const isAndroid = /Android/i.test(navigator.userAgent);
-  const appHref = `intent://import?d=${data}#Intent;scheme=apnapplis;package=${ANDROID_PACKAGE};end`;
+  const fallbackUrl = encodeURIComponent(baseUrl() + '#d=' + data);
+  const appHref = `intent://import?d=${data}#Intent;scheme=apnapplisweb;package=${ANDROID_PACKAGE};S.browser_fallback_url=${fallbackUrl};end`;
   const choice = await dialog({
     title: p.kind === 'l' ? `Importare la lista «${esc(p.name)}»?` : `Importare il catalogo «${esc(p.typeName)}»?`,
     body: `<p>${summary}</p><p class="small">${p.kind === 'l'
       ? 'Verrà creata una nuova lista. Tipo e categorie che mancano verranno aggiunti al tuo catalogo.'
       : 'Le categorie e le voci verranno unite al tuo catalogo; quelle che hai già non vengono duplicate.'}</p>`
-      + (isAndroid ? `<p class="small">Hai l'app Android? <a href="${appHref}" style="color:var(--teal)">Apri nell'app ApnAppLis 2</a></p>` : ''),
+      + (isAndroid ? `<p class="small">Hai l'app Android? <a href="${appHref}" style="color:var(--teal)">Apri nell'app ${ANDROID_APP_NAME}</a></p>` : ''),
     buttons: [{ label: 'Annulla', value: false }, { label: 'Importa', value: true }]
   });
   if (choice) importPayload(p);
@@ -419,7 +421,7 @@ function renderList(list) {
     <div class="bottombar" style="--c:${color}"><div class="inner">
       <button class="text-btn" style="color:${color}" data-act="open-picker">Catalogo</button>
       <input id="add-input" class="field" placeholder="Aggiungi elemento" enterkeyhint="done" autocomplete="off" value="${esc(ui.newText)}">
-      <button class="icon-btn" style="color:${color}" data-act="add-item" aria-label="Aggiungi" ${ui.newText.trim() ? '' : 'disabled'}>${icon('add')}</button>
+      <button class="icon-btn add-submit" style="--c:${color}" data-act="add-item" aria-label="Aggiungi" ${ui.newText.trim() ? '' : 'disabled'}>${icon('add')}</button>
     </div></div>`;
   return html;
 }
@@ -534,6 +536,8 @@ function renderSheet() {
     <div class="sheet-head"><div class="titles"><h2>Aggiungi dal catalogo</h2>
       <div class="sub" style="color:${color};font-weight:600">${esc(type.name)}</div></div>
       <button class="text-btn" data-act="pk-manage">Gestisci</button></div>
+    <div class="picker-tools"><button class="text-btn" data-act="pk-collapse-all" ${pk.collapsed.size === type.categories.length ? 'disabled' : ''}>Compatta</button>
+      <button class="text-btn" data-act="pk-expand-all" ${pk.collapsed.size === 0 ? 'disabled' : ''}>Scompatta</button></div>
     <div class="sheet-body">${body}</div>
     <div class="sheet-foot"><button class="btn outlined" data-act="pk-new-cat">Nuova categoria</button>
       <button class="btn filled" style="--c:${color}" data-act="pk-confirm" ${pk.selected.size ? '' : 'disabled'}>
@@ -702,7 +706,7 @@ const actions = {
     let clip = '';
     try { clip = await navigator.clipboard.readText(); } catch (e) { /* permesso negato */ }
     const text = await promptDialog('Importa da link', 'Incolla il link o il messaggio ricevuto', findData(clip) ? clip : '', 'Importa');
-    if (text && !(await handleIncoming(text))) await infoDialog('Link non valido', '<p>Il testo non contiene un link di ApnAppLis.</p>');
+    if (text && !(await handleIncoming(text))) await infoDialog('Link non valido', '<p>Il testo non contiene un link di ApnAppLisWeb.</p>');
   },
 
   // Dettaglio lista
@@ -739,6 +743,8 @@ const actions = {
   // Scelta dal catalogo
   'pk-close-bg': (el, e) => { if (e.target === el) closeSheet(); },
   'pk-cat': el => { const s = ui.picker.collapsed, id = +el.dataset.id; s.has(id) ? s.delete(id) : s.add(id); renderSheet(); },
+  'pk-collapse-all': () => { const list = listById(view.id), type = list && typeById(list.typeId); ui.picker.collapsed = new Set(type ? type.categories.map(c => c.id) : []); renderSheet(); },
+  'pk-expand-all': () => { ui.picker.collapsed.clear(); renderSheet(); },
   'pk-toggle': el => { const s = ui.picker.selected, id = +el.dataset.id; s.has(id) ? s.delete(id) : s.add(id); renderSheet(); },
   'pk-new-item': el => {
     ui.picker.newItemFor = +el.dataset.id; ui.picker.newItemText = ''; renderSheet();

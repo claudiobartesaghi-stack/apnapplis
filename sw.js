@@ -1,6 +1,6 @@
 // Copia locale dei file del sito, così la versione web si apre anche senza rete.
 // Cambia CACHE quando pubblichi una nuova versione dei file.
-const CACHE = 'apnapplis-v1';
+const CACHE = 'apnapplis-web-v5';
 const FILES = ['./', 'index.html', 'style.css', 'app.js', 'manifest.webmanifest', 'icon.svg', 'icon-180.png', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', e => {
