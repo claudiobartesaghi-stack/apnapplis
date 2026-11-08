@@ -18,7 +18,7 @@ const PALETTE = ['#34D3B3', '#7C8CFF', '#FFB25C', '#FF7BA9', '#B6E06A'];
  * db = {
  *   nextId,
  *   types: [{ id, name, categories: [{ id, name, items: [{ id, name }] }] }],
- *   lists: [{ id, name, createdAt, typeId, items: [{ id, text, done, categoryId }] }]
+ *   lists: [{ id, name, createdAt, typeId, items: [{ id, text, done, categoryId, quantity }] }]
  * }
  * L'ordine degli array è l'ordine mostrato.
  */
@@ -127,8 +127,8 @@ function normalizePayload(j) {
   const groups = j.g.map(g => ({
     category: str(g.c) || null,
     entries: (Array.isArray(g.i) ? g.i : []).map(e => Array.isArray(e)
-      ? { text: str(e[0]), done: e[1] === 1 }
-      : { text: str(e), done: false }).filter(e => e.text)
+      ? { text: str(e[0]), done: e[1] === 1, quantity: str(e[2]).slice(0, 16) }
+      : { text: str(e), done: false, quantity: '' }).filter(e => e.text)
   }));
   const typeName = str(j.t) || null;
   if (j.k === 'l') return { kind: 'l', name: str(j.n) || 'Lista', typeName, groups };
@@ -149,7 +149,7 @@ function exportList(list) {
     kind: 'l', name: list.name, typeName: type ? type.name : null,
     groups: groupItems(list).map(g => ({
       category: g.category ? g.category.name : null,
-      entries: g.items.map(i => ({ text: i.text, done: i.done }))
+      entries: g.items.map(i => ({ text: i.text, done: i.done, quantity: i.quantity || '' }))
     }))
   };
 }
@@ -165,7 +165,7 @@ function toWire(p) {
   if (p.kind === 'l') {
     const o = { v: 1, k: 'l', n: p.name };
     if (p.typeName) o.t = p.typeName;
-    o.g = p.groups.map(g => ({ c: g.category, i: g.entries.map(e => [e.text, e.done ? 1 : 0]) }));
+    o.g = p.groups.map(g => ({ c: g.category, i: g.entries.map(e => [e.text, e.done ? 1 : 0, (e.quantity || '').slice(0, 16)]) }));
     return o;
   }
   return { v: 1, k: 'c', t: p.typeName, g: p.groups.map(g => ({ c: g.category, i: g.entries.map(e => e.text) })) };
@@ -181,7 +181,7 @@ async function shareTextFor(p) {
     for (const g of p.groups) {
       s += '\n';
       if (headers) s += `${g.category || 'Altro'}\n`;
-      for (const e of g.entries) s += `${e.done ? '☑' : '☐'} ${e.text}\n`;
+      for (const e of g.entries) s += `${e.done ? '☑' : '☐'} ${e.text}${e.quantity ? ` — ${e.quantity}` : ''}\n`;
     }
     s += '\nApri o importa la lista in ApnAppLisWeb:\n';
   } else {
@@ -211,7 +211,7 @@ function importPayload(p) {
       const cat = type && g.category ? ensureCategory(type, g.category) : null;
       for (const e of g.entries) {
         if (cat) ensureItem(cat, e.text);
-        list.items.push({ id: newId(), text: e.text, done: e.done, categoryId: cat ? cat.id : null });
+        list.items.push({ id: newId(), text: e.text, done: e.done, categoryId: cat ? cat.id : null, quantity: e.quantity || '' });
       }
     }
     db.lists.push(list);
@@ -286,6 +286,7 @@ window.addEventListener('popstate', e => {
 const ui = {
   menu: null,          // chiave del menu aperto
   newText: '',         // testo in "Aggiungi elemento"
+  newQuantity: '',     // quantità breve in "Aggiungi elemento"
   collapsed: new Set(),// categorie chiuse nel catalogo
   picker: null         // { selected:Set, collapsed:Set, newItemFor, newItemText }
 };
@@ -411,9 +412,12 @@ function renderList(list) {
     for (const it of g.items) {
       html += `<div class="row ${it.done ? 'done' : ''}">
         <button class="check ${it.done ? 'on' : ''}" data-act="toggle" data-id="${it.id}" aria-label="Spunta ${esc(it.text)}"><i></i></button>
-        <div class="text" data-act="toggle" data-id="${it.id}">${esc(it.text)}</div>
-        <button class="icon-btn small" data-act="edit-item" data-id="${it.id}" aria-label="Modifica">${icon('edit')}</button>
-        <button class="icon-btn small" data-act="del-item" data-id="${it.id}" aria-label="Elimina">${icon('del')}</button>
+        <div class="text" data-act="toggle" data-id="${it.id}">${esc(it.text)}${it.quantity ? `<small class="quantity">${esc(it.quantity)}</small>` : ''}</div>
+        ${menuHtml('list-item-' + it.id, [
+          { act: 'edit-item', label: 'Modifica', args: `data-id="${it.id}"` },
+          ...(g.category || !list.typeId ? [] : [{ act: 'promote-item', label: 'Salva nel catalogo', args: `data-id="${it.id}"` }]),
+          { act: 'del-item', label: 'Elimina', args: `data-id="${it.id}"`, danger: true }
+        ], 'Opzioni elemento')}
       </div>`;
     }
   }
@@ -421,6 +425,7 @@ function renderList(list) {
     <div class="bottombar" style="--c:${color}"><div class="inner">
       <button class="text-btn" style="color:${color}" data-act="open-picker">Catalogo</button>
       <input id="add-input" class="field" placeholder="Aggiungi elemento" enterkeyhint="done" autocomplete="off" value="${esc(ui.newText)}">
+      <input id="add-quantity" class="field qty-field" maxlength="16" placeholder="Q.tà" aria-label="Quantità" autocomplete="off" value="${esc(ui.newQuantity)}">
       <button class="icon-btn add-submit" style="--c:${color}" data-act="add-item" aria-label="Aggiungi" ${ui.newText.trim() ? '' : 'disabled'}>${icon('add')}</button>
     </div></div>`;
   return html;
@@ -492,7 +497,7 @@ function renderCatalog() {
 
 // ---------------------------------------------------------------- Scelta dal catalogo
 function openSheet() {
-  ui.picker = { selected: new Set(), collapsed: new Set(), newItemFor: null, newItemText: '' };
+  ui.picker = { selected: new Set(), collapsed: new Set(), newItemFor: null, newItemText: '', quantities: {} };
   renderSheet();
 }
 function closeSheet() { ui.picker = null; renderSheet(); }
@@ -518,9 +523,11 @@ function renderSheet() {
     for (const it of c.items) {
       const already = present.has(it.name.toLowerCase());
       const on = already || pk.selected.has(it.id);
+      const existing = list.items.find(i => same(i.text, it.name));
       body += `<div class="pk-item ${already ? 'already' : ''}" ${already ? '' : `data-act="pk-toggle" data-id="${it.id}"`}>
         <button class="check ${on ? 'on' : ''}" style="--c:${color}" ${already ? 'disabled' : `data-act="pk-toggle" data-id="${it.id}"`} aria-label="Scegli ${esc(it.name)}"><i></i></button>
-        <span class="name">${esc(it.name)}</span>${already ? '<small>già in lista</small>' : ''}</div>`;
+        <span class="name">${esc(it.name)}</span>${already ? '<small>già in lista</small>' : ''}
+        <input class="field pk-qty" data-act="pk-quantity" data-id="${it.id}" maxlength="16" placeholder="Q.tà" aria-label="Quantità ${esc(it.name)}" value="${esc(pk.quantities[it.id] ?? existing?.quantity ?? '')}" ${already ? 'disabled' : ''}></div>`;
     }
     if (pk.newItemFor === c.id) {
       body += `<div class="pk-new"><input id="pk-new-input" class="field" style="--c:${color}" data-cat="${c.id}"
@@ -613,6 +620,31 @@ function promptDialog(title, label, initial = '', confirm = 'Salva') {
   });
 }
 
+function editListItemDialog(item) {
+  return dialog({
+    title: 'Modifica elemento',
+    body: `<label class="lbl" for="dlg-text">Testo</label><input id="dlg-text" type="text" class="field" maxlength="120" value="${esc(item.text)}"><label class="lbl" for="dlg-quantity">Quantità</label><input id="dlg-quantity" type="text" class="field" maxlength="16" placeholder="es. 2, 1 kg" value="${esc(item.quantity || '')}">`,
+    buttons: [{ label: 'Annulla', value: false }, { label: 'Salva', value: true }],
+    onOpen: (root, ok) => { const name = root.querySelector('#dlg-text'); const sync = () => { ok.disabled = !name.value.trim(); }; name.addEventListener('input', sync); sync(); },
+    collect: root => ({ text: root.querySelector('#dlg-text').value.trim(), quantity: root.querySelector('#dlg-quantity').value.trim().slice(0, 16) })
+  });
+}
+
+function catalogCategoryDialog(type, itemName) {
+  const categories = type.categories;
+  return dialog({
+    title: 'Salva nel catalogo',
+    body: `<p>Scegli dove salvare «${esc(itemName)}» nel catalogo ${esc(type.name)}.</p><label class="lbl" for="dlg-category">Categoria</label><select id="dlg-category" class="field">${categories.map(c => `<option value="${c.id}">${esc(c.name)}</option>`).join('')}<option value="new" ${categories.length ? '' : 'selected'}>Nuova categoria…</option></select><input id="dlg-new-category" class="field block" maxlength="60" placeholder="Nome della nuova categoria" ${categories.length ? 'hidden' : ''}>`,
+    buttons: [{ label: 'Annulla', value: false }, { label: 'Salva', value: true }],
+    onOpen: (root, ok) => {
+      const select = root.querySelector('#dlg-category'), input = root.querySelector('#dlg-new-category');
+      const sync = () => { input.hidden = select.value !== 'new'; ok.disabled = select.value === 'new' && !input.value.trim(); };
+      select.addEventListener('change', sync); input.addEventListener('input', sync); sync();
+    },
+    collect: root => ({ categoryId: root.querySelector('#dlg-category').value, newName: root.querySelector('#dlg-new-category').value.trim() })
+  });
+}
+
 /** Scelta del tipo di lista; con withName chiede anche il nome (nuova lista). */
 function typeDialog({ title, withName, current, message }) {
   const radios = [{ v: '', label: 'Nessuno' }, ...db.types.map(t => ({ v: String(t.id), label: t.name })), { v: 'new', label: 'Nuovo tipo…' }];
@@ -670,8 +702,9 @@ function addItem() {
   // Se il testo è una voce del catalogo, l'elemento va nella sua categoria
   const type = typeById(list.typeId);
   const cat = type && type.categories.find(c => c.items.some(i => same(i.name, text)));
-  list.items.push({ id: newId(), text, done: false, categoryId: cat ? cat.id : null });
+  list.items.push({ id: newId(), text, done: false, categoryId: cat ? cat.id : null, quantity: ui.newQuantity.trim().slice(0, 16) });
   ui.newText = '';
+  ui.newQuantity = '';
   commit();
 }
 
@@ -713,10 +746,21 @@ const actions = {
   'toggle': el => { const it = findListItem(+el.dataset.id); if (it) { it.done = !it.done; commit(); } },
   'edit-item': async el => {
     const it = findListItem(+el.dataset.id);
-    const t = it && await promptDialog('Modifica elemento', 'Testo', it.text);
-    if (t) { it.text = t; commit(); }
+    const edited = it && await editListItemDialog(it);
+    if (edited) { it.text = edited.text; it.quantity = edited.quantity; commit(); }
   },
   'del-item': el => { const l = listById(view.id); l.items = l.items.filter(i => i.id !== +el.dataset.id); commit(); },
+  'promote-item': async el => {
+    const list = listById(view.id), item = findListItem(+el.dataset.id), type = list && typeById(list.typeId);
+    if (!item || !type) return;
+    const result = await catalogCategoryDialog(type, item.text);
+    if (!result) return;
+    const category = result.categoryId === 'new' ? ensureCategory(type, result.newName) : type.categories.find(c => c.id === +result.categoryId);
+    if (!category) return;
+    ensureItem(category, item.text);
+    item.categoryId = category.id;
+    commit();
+  },
   'add-item': addItem,
   'open-picker': openPicker,
   'share-list': () => { const l = listById(view.id); share(exportList(l), l.name); },
@@ -746,6 +790,7 @@ const actions = {
   'pk-collapse-all': () => { const list = listById(view.id), type = list && typeById(list.typeId); ui.picker.collapsed = new Set(type ? type.categories.map(c => c.id) : []); renderSheet(); },
   'pk-expand-all': () => { ui.picker.collapsed.clear(); renderSheet(); },
   'pk-toggle': el => { const s = ui.picker.selected, id = +el.dataset.id; s.has(id) ? s.delete(id) : s.add(id); renderSheet(); },
+  'pk-quantity': () => {},
   'pk-new-item': el => {
     ui.picker.newItemFor = +el.dataset.id; ui.picker.newItemText = ''; renderSheet();
     const input = document.getElementById('pk-new-input'); if (input) input.focus();
@@ -766,8 +811,9 @@ const actions = {
     const chosen = type.categories.flatMap(c => c.items.map(i => ({ item: i, cat: c }))).filter(x => ui.picker.selected.has(x.item.id));
     for (const { item, cat } of chosen) {
       const old = list.items.find(i => same(i.text, item.name));
-      if (!old) list.items.push({ id: newId(), text: item.name, done: false, categoryId: cat.id });
-      else if (old.done) { old.done = false; if (old.categoryId == null) old.categoryId = cat.id; }
+      const quantity = (ui.picker.quantities[item.id] || '').trim().slice(0, 16);
+      if (!old) list.items.push({ id: newId(), text: item.name, done: false, categoryId: cat.id, quantity });
+      else if (old.done) { old.done = false; if (old.categoryId == null) old.categoryId = cat.id; if (quantity) old.quantity = quantity; }
     }
     ui.picker = null;
     commit();
@@ -867,6 +913,10 @@ document.addEventListener('input', e => {
     ui.newText = e.target.value;
     const btn = document.querySelector('[data-act="add-item"]');
     if (btn) btn.disabled = !ui.newText.trim();
+  } else if (e.target.id === 'add-quantity') {
+    ui.newQuantity = e.target.value.slice(0, 16);
+  } else if (e.target.matches('[data-act="pk-quantity"]') && ui.picker) {
+    ui.picker.quantities[e.target.dataset.id] = e.target.value.slice(0, 16);
   } else if (e.target.id === 'pk-new-input' && ui.picker) {
     ui.picker.newItemText = e.target.value;
   }
